@@ -10,26 +10,48 @@ load_dotenv()
 
 import re
 
-async def generate_solution_with_groq(problem_text: str, starter_code: str) -> str:
+async def generate_solution_with_groq(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         print("Missing API key. Please run: export GOOGLE_API_KEY='gsk_...'")
         return ""
         
-    prompt = f"""
-    You are an expert competitive programmer. 
-    Solve the following LeetCode problem.
-    I will provide the problem statement and the starter code template.
-    You MUST complete the starter code template exactly in the language provided.
-    Provide ONLY the raw code. Do not include markdown code blocks.
-    Do not explain the code. Just provide the raw completed code.
-    
-    Problem Statement:
-    {problem_text}
-    
-    Starter Code:
-    {starter_code}
-    """
+    if previous_error and previous_code:
+        prompt = f"""
+        You are an expert competitive programmer. 
+        I tried solving the following LeetCode problem with this Python code:
+        
+        {previous_code}
+        
+        However, the submission failed with the following result/error:
+        {previous_error}
+        
+        Please provide the corrected Python code.
+        You MUST complete the starter code template exactly in the language provided.
+        Provide ONLY the raw code. Do not include markdown code blocks.
+        Do not explain the code. Just provide the raw completed code.
+        
+        Problem Statement:
+        {problem_text}
+        
+        Starter Code:
+        {starter_code}
+        """
+    else:
+        prompt = f"""
+        You are an expert competitive programmer. 
+        Solve the following LeetCode problem.
+        I will provide the problem statement and the starter code template.
+        You MUST complete the starter code template exactly in the language provided.
+        Provide ONLY the raw code. Do not include markdown code blocks.
+        Do not explain the code. Just provide the raw completed code.
+        
+        Problem Statement:
+        {problem_text}
+        
+        Starter Code:
+        {starter_code}
+        """
     
     data = {
         "model": "qwen/qwen3.8-27b",
@@ -106,73 +128,87 @@ async def solve_current_problem(page, context):
         print(f"Extracted starter code ({len(starter_code)} chars). Asking Groq for the solution...")
         
         # Generate code
-        code = await generate_solution_with_groq(problem_text, starter_code)
-        if not code:
-            print("Failed to get code from Groq.")
-            return False
+        previous_code = None
+        previous_error = None
+        
+        for attempt in range(3):
+            if attempt > 0:
+                print(f"\n--- Self-Correction Attempt {attempt} ---")
+                
+            code = await generate_solution_with_groq(problem_text, starter_code, previous_error, previous_code)
+            if not code:
+                print("Failed to get code from Groq.")
+                return False
+                
+            print("Code generated successfully! Injecting into editor...")
             
-        print("Code generated successfully! Injecting into editor...")
-        
-        # Delete the existing code
-        try:
-            await page.evaluate("document.querySelector('.monaco-editor').scrollIntoView()")
-        except:
-            pass
-        await page.click('.monaco-editor', force=True)
-        await asyncio.sleep(0.5)
-        await page.keyboard.press(f"{modifier}+A")
-        await page.keyboard.press("Backspace")
-        
-        # Paste code
-        print("Pasting code...")
-        await context.grant_permissions(['clipboard-read', 'clipboard-write'])
-        await page.evaluate("async (text) => { await navigator.clipboard.writeText(text); }", code)
-        await page.keyboard.press(f"{modifier}+V")
-        
-        await asyncio.sleep(2)  # Give the editor and UI a moment to process the paste
-        
-        # Submit
-        print("Submitting code...")
-        try:
-            # Force click the actual submit button (green button with cloud icon)
-            submit_btn = page.locator('button:has-text("Submit")')
-            await submit_btn.first.click(force=True)
-        except Exception as e:
-            # Fallback to keyboard shortcut
-            print("Button click failed, using keyboard shortcut...")
+            # Delete the existing code
             try:
                 await page.evaluate("document.querySelector('.monaco-editor').scrollIntoView()")
             except:
                 pass
             await page.click('.monaco-editor', force=True)
-            await page.keyboard.press(f"{modifier}+Enter")
-        
-        print("Waiting for result (Acceptance)...")
-        # Wait up to 25 seconds for the result
-        try:
-            # Look for the submission result element specifically
-            result_element = await page.wait_for_selector(
-                '[data-e2e-locator="submission-result"], [data-e2e-locator="console-result"]', 
-                timeout=25000
-            )
+            await asyncio.sleep(0.5)
+            await page.keyboard.press(f"{modifier}+A")
+            await page.keyboard.press("Backspace")
             
-            if result_element:
-                result_text = await result_element.inner_text()
-                # Use in to do partial matching instead of strict equality
-                if "Accepted" in result_text:
-                    print("✅ Problem Solved Successfully!")
-                    return True
-                else:
-                    print(f"❌ Submission failed. Result: {result_text}")
-                    return False
-        except:
-            print("❌ Did not see a submission result in time. Moving on anyway.")
+            # Paste code
+            print("Pasting code...")
+            await context.grant_permissions(['clipboard-read', 'clipboard-write'])
+            await page.evaluate("async (text) => { await navigator.clipboard.writeText(text); }", code)
+            await page.keyboard.press(f"{modifier}+V")
+            
+            await asyncio.sleep(2)  # Give the editor and UI a moment to process the paste
+            
+            # Submit
+            print("Submitting code...")
             try:
-                await page.screenshot(path="timeout_screenshot.png")
-                print("Saved a screenshot to 'timeout_screenshot.png' in this folder. Please stop the script (Ctrl+C) and open that image!")
+                # Force click the actual submit button (green button with cloud icon)
+                submit_btn = page.locator('button:has-text("Submit")')
+                await submit_btn.first.click(force=True)
+            except Exception as e:
+                # Fallback to keyboard shortcut
+                print("Button click failed, using keyboard shortcut...")
+                try:
+                    await page.evaluate("document.querySelector('.monaco-editor').scrollIntoView()")
+                except:
+                    pass
+                await page.click('.monaco-editor', force=True)
+                await page.keyboard.press(f"{modifier}+Enter")
+            
+            print("Waiting for result (Acceptance)...")
+            # Wait up to 25 seconds for the result
+            try:
+                # Look for the submission result element specifically
+                result_element = await page.wait_for_selector(
+                    '[data-e2e-locator="submission-result"], [data-e2e-locator="console-result"]', 
+                    timeout=25000
+                )
+                
+                if result_element:
+                    result_text = await result_element.inner_text()
+                    # Use in to do partial matching instead of strict equality
+                    if "Accepted" in result_text:
+                        print("✅ Problem Solved Successfully!")
+                        return True
+                    else:
+                        print(f"❌ Submission failed. Result: {result_text}")
+                        # Prepare for next attempt
+                        previous_code = code
+                        previous_error = result_text
+                        await asyncio.sleep(2)
+                        continue
             except:
-                pass
-            return False
+                print("❌ Did not see a submission result in time. Moving on anyway.")
+                try:
+                    await page.screenshot(path="timeout_screenshot.png")
+                    print("Saved a screenshot to 'timeout_screenshot.png' in this folder. Please stop the script (Ctrl+C) and open that image!")
+                except:
+                    pass
+                return False
+                
+        print("❌ Failed after 3 self-correction attempts. Moving on.")
+        return False
             
     except Exception as e:
         print(f"Error solving problem: {e}")
