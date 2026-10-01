@@ -157,26 +157,30 @@ async def solve_current_problem(page, context):
                 
             print("Code generated successfully! Injecting into editor...")
             
-            # The most reliable way to set Monaco editor value
+            # The most reliable way to set Monaco editor value is to aggressively update ALL models
             success = await page.evaluate('''async (codeText) => { 
                 try {
-                    let models = window.monaco.editor.getModels();
-                    if (models && models.length > 0) {
-                        let updated = false;
-                        for (let m of models) {
-                            let lang = m.getLanguageId ? m.getLanguageId() : (m.getModeId ? m.getModeId() : "");
-                            if (lang.includes("python") || models.length === 1) {
+                    let updated = false;
+                    if (window.monaco && window.monaco.editor) {
+                        // 1. Update all active editor instances
+                        let editors = window.monaco.editor.getEditors();
+                        if (editors && editors.length > 0) {
+                            for (let e of editors) {
+                                e.setValue(codeText);
+                                updated = true;
+                            }
+                        }
+                        
+                        // 2. Update all underlying models just to be absolutely sure
+                        let models = window.monaco.editor.getModels();
+                        if (models && models.length > 0) {
+                            for (let m of models) {
                                 m.setValue(codeText);
                                 updated = true;
                             }
                         }
-                        if (!updated) {
-                            // Fallback: just update the last one if we couldn't find python explicitly
-                            models[models.length - 1].setValue(codeText);
-                        }
-                        return true;
                     }
-                    return false;
+                    return updated;
                 } catch(e) {
                     return false;
                 }
