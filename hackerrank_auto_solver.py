@@ -14,10 +14,10 @@ load_dotenv()
 is_mac = sys.platform == "darwin"
 modifier = "Meta" if is_mac else "Control"
 
-async def generate_solution_with_openrouter(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
-    api_key = os.getenv("OPENROUTER_API_KEY")
+async def generate_solution_with_groq(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("Missing API key. Please run: export OPENROUTER_API_KEY='sk-or-v1-...'")
+        print("Missing API key. Please run: export GROQ_API_KEY='gsk_...'")
         return ""
         
     if previous_error and previous_code:
@@ -58,18 +58,16 @@ async def generate_solution_with_openrouter(problem_text: str, starter_code: str
         """
     
     data = {
-        "model": "anthropic/claude-sonnet-4.6",
+        "model": "openai/gpt-oss-120b",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0
     }
     
     req = urllib.request.Request(
-        'https://openrouter.ai/api/v1/chat/completions',
+        'https://api.groq.com/openai/v1/chat/completions',
         data=json.dumps(data).encode('utf-8'),
         headers={
             'Authorization': f'Bearer {api_key}',
-            'HTTP-Referer': 'https://github.com/kumar200608/portal-automate',
-            'X-Title': 'HackerRank Auto Solver',
             'Content-Type': 'application/json'
         }
     )
@@ -89,12 +87,12 @@ async def generate_solution_with_openrouter(problem_text: str, starter_code: str
                 code = re.sub(r"\n?```$", "", code)
                 return code.strip()
             else:
-                print(f"Unexpected OpenRouter response format: {response_data}")
+                print(f"Unexpected Groq response format: {response_data}")
                 return ""
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 wait_time = 15 * (attempt + 1)
-                print(f"Rate limited by OpenRouter (429). Waiting {wait_time} seconds before retrying...")
+                print(f"Rate limited by Groq (429). Waiting {wait_time} seconds before retrying...")
                 time.sleep(wait_time)
             else:
                 print(f"Failed to generate code: HTTP Error {e.code}: {e.reason}")
@@ -107,7 +105,7 @@ async def generate_solution_with_openrouter(problem_text: str, starter_code: str
             print(f"Failed to generate code: {e}")
             return ""
             
-    print("Failed to get code from OpenRouter after multiple retries due to rate limits.")
+    print("Failed to get code from Groq after multiple retries due to rate limits.")
     return ""
 
 
@@ -140,7 +138,7 @@ async def solve_current_problem(page, context):
         # Read the starter code from clipboard
         await context.grant_permissions(['clipboard-read', 'clipboard-write'])
         starter_code = await page.evaluate("async () => await navigator.clipboard.readText()")
-        print(f"Extracted starter code ({len(starter_code)} chars). Asking OpenRouter for the solution...")
+        print(f"Extracted starter code ({len(starter_code)} chars). Asking Groq for the solution...")
         
         previous_code = None
         previous_error = None
@@ -149,9 +147,9 @@ async def solve_current_problem(page, context):
             if attempt > 0:
                 print(f"\n--- Self-Correction Attempt {attempt} ---")
                 
-            code = await generate_solution_with_openrouter(problem_text, starter_code, previous_error, previous_code)
+            code = await generate_solution_with_groq(problem_text, starter_code, previous_error, previous_code)
             if not code:
-                print("Failed to get code from OpenRouter.")
+                print("Failed to get code from Groq.")
                 return False
                 
             print("Code generated successfully! Injecting into editor...")
