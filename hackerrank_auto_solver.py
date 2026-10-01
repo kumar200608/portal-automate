@@ -191,7 +191,10 @@ async def solve_current_problem(page, context):
                     if "Congratulations" in response_text or "Accepted" in response_text or "Success" in response_text:
                         print("✅ Problem Solved Successfully!")
                         return True
-                    elif response_text.strip() != "":
+                    
+                    # Check for actual failure states (ignore "Started", "Running Testcases", etc)
+                    failure_keywords = ["Wrong Answer", "Runtime Error", "Compilation error", "Terminated due to timeout", "Failed"]
+                    if any(keyword in response_text for keyword in failure_keywords):
                         error_text = response_text
                         # Try to get compiler message or testcase output
                         compile_message = await page.query_selector('.compiler-message')
@@ -202,6 +205,7 @@ async def solve_current_problem(page, context):
                         previous_code = code
                         previous_error = error_text
                         break # Break out of inner while to retry attempt
+                    # If it's none of the above, it's probably still running ("Started", "Running", etc), so we just keep waiting in the loop!
             else:
                 print("❌ Did not see a submission result in time. Moving on anyway.")
                 return False
