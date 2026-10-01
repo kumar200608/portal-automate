@@ -14,11 +14,14 @@ load_dotenv()
 is_mac = sys.platform == "darwin"
 modifier = "Meta" if is_mac else "Control"
 
-async def generate_solution_with_gemini(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
+async def generate_solution_with_groq(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("Missing API key. Please run: export GOOGLE_API_KEY='...'")
-        return ""
+        # Fallback to the GOOGLE_API_KEY if they put it there
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("Missing API key. Please run: export GROQ_API_KEY='gsk_...'")
+            return ""
         
     if previous_error and previous_code:
         prompt = f"""
@@ -58,14 +61,18 @@ async def generate_solution_with_gemini(problem_text: str, starter_code: str, pr
         """
     
     data = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "model": "qwen/qwen3.8-27b",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0
     }
     
     req = urllib.request.Request(
-        f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}',
+        'https://api.groq.com/openai/v1/chat/completions',
         data=json.dumps(data).encode('utf-8'),
         headers={
-            'Content-Type': 'application/json'
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0'
         }
     )
     
@@ -77,7 +84,7 @@ async def generate_solution_with_gemini(problem_text: str, starter_code: str, pr
         try:
             resp = urllib.request.urlopen(req, context=ctx)
             response_data = json.loads(resp.read())
-            code = response_data['candidates'][0]['content']['parts'][0]['text']
+            code = response_data['choices'][0]['message']['content']
             # Robustly strip markdown code blocks
             code = re.sub(r"^```[a-zA-Z0-9]*\n?", "", code.strip())
             code = re.sub(r"\n?```$", "", code)
@@ -85,17 +92,16 @@ async def generate_solution_with_gemini(problem_text: str, starter_code: str, pr
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 wait_time = 15 * (attempt + 1)
-                print(f"Rate limited by Gemini (429). Waiting {wait_time} seconds before retrying...")
+                print(f"Rate limited by Groq (429). Waiting {wait_time} seconds before retrying...")
                 time.sleep(wait_time)
             else:
                 print(f"Failed to generate code: HTTP Error {e.code}: {e.reason}")
-                print(e.read().decode())
                 return ""
         except Exception as e:
             print(f"Failed to generate code: {e}")
             return ""
             
-    print("Failed to get code from Gemini after multiple retries due to rate limits.")
+    print("Failed to get code from Groq after multiple retries due to rate limits.")
     return ""
 
 
@@ -128,7 +134,7 @@ async def solve_current_problem(page, context):
         # Read the starter code from clipboard
         await context.grant_permissions(['clipboard-read', 'clipboard-write'])
         starter_code = await page.evaluate("async () => await navigator.clipboard.readText()")
-        print(f"Extracted starter code ({len(starter_code)} chars). Asking Gemini for the solution...")
+        print(f"Extracted starter code ({len(starter_code)} chars). Asking Groq for the solution...")
         
         previous_code = None
         previous_error = None
@@ -137,34 +143,48 @@ async def solve_current_problem(page, context):
             if attempt > 0:
                 print(f"\n--- Self-Correction Attempt {attempt} ---")
                 
-            code = await generate_solution_with_gemini(problem_text, starter_code, previous_error, previous_code)
+            code = await generate_solution_with_groq(problem_text, starter_code, previous_error, previous_code)
             if not code:
-                print("Failed to get code from Gemini.")
+                print("Failed to get code from Groq.")
                 return False
                 
             print("Code generated successfully! Injecting into editor...")
             
+            # Delete the existing code robustly using Monaco API
             try:
                 await page.evaluate("document.querySelector('.monaco-editor').scrollIntoView()")
             except:
                 pass
+            
+            # The ONLY 100% reliable way to clear Monaco editor is using its internal API
+            print("Clearing editor...")
+            await page.evaluate('''() => {
+                try {
+                    window.monaco.editor.getModels()[0].setValue("");
+                } catch(e) {
+                    console.error("Monaco API failed:", e);
+                }
+            }''')
+            
+            # As a fallback, try to click and select all, but also use Backspace multiple times just in case
             await page.click('.monaco-editor', force=True)
             await asyncio.sleep(0.5)
-            # Click inside the editor text area specifically to ensure focus
-            try:
-                await page.click('.view-lines', force=True)
-            except:
-                pass
-            await asyncio.sleep(0.2)
-            await page.keyboard.press(f"{modifier}+a")
-            await asyncio.sleep(0.2)
-            await page.keyboard.press("Backspace")
             
             print("Pasting code...")
             await context.grant_permissions(['clipboard-read', 'clipboard-write'])
-            await page.evaluate("async (text) => { await navigator.clipboard.writeText(text); }", code)
-            await page.keyboard.press(f"{modifier}+v")
             
+            # You can also use Monaco API to set value directly instead of pasting!
+            await page.evaluate('''async (codeText) => { 
+                try {
+                    window.monaco.editor.getModels()[0].setValue(codeText);
+                } catch(e) {
+                    // Fallback to clipboard pasting
+                    await navigator.clipboard.writeText(codeText);
+                }
+            }''', code)
+            
+            # Fallback pasting if the above failed
+            await page.keyboard.press(f"{modifier}+v")
             await asyncio.sleep(2) 
             
             print("Submitting code...")
