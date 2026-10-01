@@ -214,7 +214,7 @@ async def get_unsolved_problems(page, count: int):
     while len(problems) < count:
         try:
             # HackerRank challenges link
-            selector = 'a.challengecard-title, a.btn[href*="/challenges/"]'
+            selector = 'a[href*="/challenges/"]'
             await page.wait_for_selector(selector, timeout=10000)
             
             links = await page.query_selector_all(selector)
@@ -242,10 +242,10 @@ async def get_unsolved_problems(page, count: int):
             await asyncio.sleep(1)
             
             # Next button typically in pagination
-            next_btn = await page.query_selector('.pagination a[data-attr8="right"]')
+            next_btn = await page.query_selector('a[data-attr1="Right"], a[data-attr8="Right"], .pagination li:last-child a')
             if next_btn:
                 # check if disabled
-                is_disabled = await page.evaluate("(el) => el.parentElement.classList.contains('disabled')", next_btn)
+                is_disabled = await page.evaluate("(el) => el.parentElement && el.parentElement.classList.contains('disabled')", next_btn)
                 if is_disabled:
                     print("Reached the last page of problems.")
                     break
@@ -257,7 +257,7 @@ async def get_unsolved_problems(page, count: int):
                 print("Could not find a Next Page button. Stopping extraction here.")
                 break
         except Exception as e:
-            print("Could not navigate to next page.")
+            print(f"Could not navigate to next page: {e}")
             break
             
     return problems
