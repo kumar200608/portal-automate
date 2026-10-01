@@ -148,7 +148,14 @@ async def solve_current_problem(page, context):
                 pass
             await page.click('.monaco-editor', force=True)
             await asyncio.sleep(0.5)
+            # Click inside the editor text area specifically to ensure focus
+            try:
+                await page.click('.view-lines', force=True)
+            except:
+                pass
+            await asyncio.sleep(0.2)
             await page.keyboard.press(f"{modifier}+A")
+            await asyncio.sleep(0.2)
             await page.keyboard.press("Backspace")
             
             print("Pasting code...")
@@ -175,25 +182,26 @@ async def solve_current_problem(page, context):
             success = False
             while time.time() - start_time < 30:
                 await asyncio.sleep(2)
-                # Check for success
-                success_el = await page.query_selector('.challenge-response:has-text("Congratulations")')
-                if success_el:
-                    print("✅ Problem Solved Successfully!")
-                    return True
                 
-                # Check for failure (Wrong Answer, Runtime Error, etc)
-                error_el = await page.query_selector('.challenge-response:has-text("Wrong Answer"), .challenge-response:has-text("Runtime Error"), .challenge-response:has-text("Terminated due to timeout")')
-                if error_el:
-                    error_text = await error_el.inner_text()
-                    # Also try to get compiler message or testcase output
-                    compile_message = await page.query_selector('.compiler-message')
-                    if compile_message:
-                        error_text += "\n" + await compile_message.inner_text()
-                        
-                    print(f"❌ Submission failed. Result: {error_text}")
-                    previous_code = code
-                    previous_error = error_text
-                    break # Break out of inner while to retry attempt
+                # HackerRank results typically appear with this class
+                response_el = await page.query_selector('.challenge-response')
+                if response_el:
+                    response_text = await response_el.inner_text()
+                    
+                    if "Congratulations" in response_text or "Accepted" in response_text or "Success" in response_text:
+                        print("✅ Problem Solved Successfully!")
+                        return True
+                    elif response_text.strip() != "":
+                        error_text = response_text
+                        # Try to get compiler message or testcase output
+                        compile_message = await page.query_selector('.compiler-message')
+                        if compile_message:
+                            error_text += "\n" + await compile_message.inner_text()
+                            
+                        print(f"❌ Submission failed. Result: {error_text}")
+                        previous_code = code
+                        previous_error = error_text
+                        break # Break out of inner while to retry attempt
             else:
                 print("❌ Did not see a submission result in time. Moving on anyway.")
                 return False
