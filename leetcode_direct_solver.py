@@ -90,7 +90,10 @@ async def main():
             page = context.pages[0] if context.pages else await context.new_page()
             
             print("Navigating to LeetCode...")
-            await page.goto("https://leetcode.com/problemset/")
+            try:
+                await page.goto("https://leetcode.com/problemset/", wait_until="domcontentloaded", timeout=15000)
+            except Exception as e:
+                print(f"Initial navigation might be stuck due to Cloudflare, but continuing anyway... ({e})")
             
             print("\n*** IMPORTANT ***")
             print("If you are not logged in, please log in now in the browser window.")
@@ -131,16 +134,58 @@ async def main():
                 
             print("Code generated successfully! Injecting into editor...")
             
-            # Delete the existing code
-            await page.keyboard.press("Backspace")
+            # The most reliable way to set Monaco editor value is to aggressively update ALL models
+            success = await page.evaluate('''async (codeText) => { 
+                try {
+                    let updated = false;
+                    if (window.monaco && window.monaco.editor) {
+                        // 1. Update all active editor instances
+                        let editors = window.monaco.editor.getEditors();
+                        if (editors && editors.length > 0) {
+                            for (let e of editors) {
+                                e.setValue(codeText);
+                                updated = true;
+                            }
+                        }
+                        
+                        // 2. Update all underlying models just to be absolutely sure
+                        let models = window.monaco.editor.getModels();
+                        if (models && models.length > 0) {
+                            for (let m of models) {
+                                m.setValue(codeText);
+                                updated = true;
+                            }
+                        }
+                    }
+                    return updated;
+                } catch(e) {
+                    return false;
+                }
+            }''', code)
             
-            # Type code using clipboard to avoid Monaco auto-indentation double-spacing
-            print("Pasting code...")
-            # Use real clipboard paste
-            await context.grant_permissions(['clipboard-read', 'clipboard-write'])
-            await page.evaluate("async (text) => { await navigator.clipboard.writeText(text); }", code)
-            await page.keyboard.press("Meta+V")
-            
+            if not success:
+                print("Monaco API failed, falling back to keyboard paste...")
+                # Fallback pasting
+                is_mac = os.name == 'posix' and 'darwin' in os.uname().sysname.lower()
+                modifier = "Meta" if is_mac else "Control"
+                try:
+                    await page.click('.monaco-editor', force=True)
+                    await asyncio.sleep(0.5)
+                    await page.click('.view-lines', force=True)
+                except Exception:
+                    pass
+                
+                await asyncio.sleep(0.5)
+                await page.keyboard.press(f"{modifier}+a")
+                await asyncio.sleep(0.2)
+                await page.keyboard.press("Backspace")
+                await asyncio.sleep(0.2)
+                
+                await page.keyboard.insert_text(code)
+                await asyncio.sleep(1) 
+                
+                await page.keyboard.press(f"{modifier}+v")
+                
             await asyncio.sleep(1)
             
             # Submit
