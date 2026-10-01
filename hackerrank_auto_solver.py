@@ -156,42 +156,33 @@ async def solve_current_problem(page, context):
                 
             print("Code generated successfully! Injecting into editor...")
             
-            # Delete the existing code robustly using Monaco API
-            try:
-                await page.evaluate("document.querySelector('.monaco-editor').scrollIntoView()")
-            except:
-                pass
-            
-            # The ONLY 100% reliable way to clear Monaco editor is using its internal API
-            print("Clearing editor...")
-            await page.evaluate('''() => {
+            # The most reliable way to set Monaco editor value
+            success = await page.evaluate('''async (codeText) => { 
                 try {
-                    window.monaco.editor.getModels()[0].setValue("");
+                    // Try to find the active model and set it
+                    let models = window.monaco.editor.getModels();
+                    if (models && models.length > 0) {
+                        models[0].setValue(codeText);
+                        return true;
+                    }
+                    return false;
                 } catch(e) {
-                    console.error("Monaco API failed:", e);
-                }
-            }''')
-            
-            # As a fallback, try to click and select all, but also use Backspace multiple times just in case
-            await page.click('.monaco-editor', force=True)
-            await asyncio.sleep(0.5)
-            
-            print("Pasting code...")
-            await context.grant_permissions(['clipboard-read', 'clipboard-write'])
-            
-            # You can also use Monaco API to set value directly instead of pasting!
-            await page.evaluate('''async (codeText) => { 
-                try {
-                    window.monaco.editor.getModels()[0].setValue(codeText);
-                } catch(e) {
-                    // Fallback to clipboard pasting
-                    await navigator.clipboard.writeText(codeText);
+                    return false;
                 }
             }''', code)
             
-            # Fallback pasting if the above failed
-            await page.keyboard.press(f"{modifier}+v")
-            await asyncio.sleep(2) 
+            if not success:
+                print("Monaco API failed, falling back to keyboard paste...")
+                # Fallback pasting
+                await page.evaluate("async (codeText) => { await navigator.clipboard.writeText(codeText); }", code)
+                await page.click('.view-lines', force=True)
+                await asyncio.sleep(0.5)
+                await page.keyboard.press(f"{modifier}+a")
+                await asyncio.sleep(0.1)
+                await page.keyboard.press("Backspace")
+                await asyncio.sleep(0.1)
+                await page.keyboard.press(f"{modifier}+v")
+                await asyncio.sleep(2) 
             
             print("Submitting code...")
             try:
