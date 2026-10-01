@@ -62,7 +62,7 @@ async def generate_solution_with_gemini(problem_text: str, starter_code: str, pr
     }
     
     req = urllib.request.Request(
-        f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}',
+        f'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}',
         data=json.dumps(data).encode('utf-8'),
         headers={
             'Content-Type': 'application/json'
