@@ -158,10 +158,20 @@ async def solve_current_problem(page, context):
             # The most reliable way to set Monaco editor value
             success = await page.evaluate('''async (codeText) => { 
                 try {
-                    // Try to find the active model and set it
                     let models = window.monaco.editor.getModels();
                     if (models && models.length > 0) {
-                        models[0].setValue(codeText);
+                        let updated = false;
+                        for (let m of models) {
+                            let lang = m.getLanguageId ? m.getLanguageId() : (m.getModeId ? m.getModeId() : "");
+                            if (lang.includes("python") || models.length === 1) {
+                                m.setValue(codeText);
+                                updated = true;
+                            }
+                        }
+                        if (!updated) {
+                            // Fallback: just update the last one if we couldn't find python explicitly
+                            models[models.length - 1].setValue(codeText);
+                        }
                         return true;
                     }
                     return false;
