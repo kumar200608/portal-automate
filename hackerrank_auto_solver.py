@@ -183,14 +183,19 @@ async def solve_current_problem(page, context):
             if not success:
                 print("Monaco API failed, falling back to keyboard paste...")
                 # Fallback pasting
-                await page.evaluate("async (codeText) => { await navigator.clipboard.writeText(codeText); }", code)
-                await page.click('.view-lines', force=True)
+                try:
+                    await page.focus('.monaco-editor textarea')
+                except Exception:
+                    await page.click('.view-lines', force=True)
+                
                 await asyncio.sleep(0.5)
                 await page.keyboard.press(f"{modifier}+a")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.5)
                 await page.keyboard.press("Backspace")
-                await asyncio.sleep(0.1)
-                await page.keyboard.press(f"{modifier}+v")
+                await asyncio.sleep(0.5)
+                
+                # Use insert_text which instantly drops the text in instead of clipboard
+                await page.keyboard.insert_text(code)
                 await asyncio.sleep(2) 
             
             print("Submitting code...")
