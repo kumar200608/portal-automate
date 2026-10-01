@@ -34,6 +34,7 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
         You MUST complete the starter code template exactly in the language provided.
         Provide ONLY the raw code. Do not include markdown code blocks.
         Do not explain the code. Just provide the raw completed code.
+        CRITICAL: Do NOT use any non-ASCII characters (like °). If you need special characters, use chr(176) or similar.
         
         Problem Statement:
         {problem_text}
@@ -49,6 +50,7 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
         You MUST complete the starter code template exactly in the language provided (Python 3).
         Provide ONLY the raw code. Do not include markdown code blocks.
         Do not explain the code. Just provide the raw completed code.
+        CRITICAL: Do NOT use any non-ASCII characters (like °). If you need special characters, use chr(176) or similar.
         
         Problem Statement:
         {problem_text}
@@ -184,19 +186,32 @@ async def solve_current_problem(page, context):
                 print("Monaco API failed, falling back to keyboard paste...")
                 # Fallback pasting
                 try:
-                    await page.focus('.monaco-editor textarea')
-                except Exception:
+                    await page.click('.monaco-editor', force=True)
+                    await asyncio.sleep(0.5)
                     await page.click('.view-lines', force=True)
+                except Exception:
+                    pass
                 
                 await asyncio.sleep(0.5)
+                # First delete using standard shortcuts
                 await page.keyboard.press(f"{modifier}+a")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 await page.keyboard.press("Backspace")
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 
-                # Use insert_text which instantly drops the text in instead of clipboard
+                # Next, try to completely clear it via JavaScript clipboard
+                # just in case the above still didn't delete it
+                await page.evaluate('''async (codeText) => {
+                    await navigator.clipboard.writeText(codeText);
+                }''', code)
+                
+                # Use insert_text as primary injection method since it's robust against clipboard issues
                 await page.keyboard.insert_text(code)
-                await asyncio.sleep(2) 
+                await asyncio.sleep(1) 
+                
+                # As a final measure, press paste just in case insert_text fails on Monaco
+                await page.keyboard.press(f"{modifier}+v")
+                await asyncio.sleep(1) 
             
             print("Submitting code...")
             try:
