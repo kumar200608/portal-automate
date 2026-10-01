@@ -117,8 +117,13 @@ async def solve_current_problem(page, context):
             pass
         await page.click('.monaco-editor', force=True)
         await asyncio.sleep(0.5)
-        await page.keyboard.press(f"{modifier}+A")
-        await page.keyboard.press(f"{modifier}+C")
+        try:
+            await page.click('.view-lines', force=True)
+        except:
+            pass
+        await asyncio.sleep(0.2)
+        await page.keyboard.press(f"{modifier}+a")
+        await page.keyboard.press(f"{modifier}+c")
         
         # Read the starter code from clipboard
         await context.grant_permissions(['clipboard-read', 'clipboard-write'])
@@ -151,14 +156,14 @@ async def solve_current_problem(page, context):
             except:
                 pass
             await asyncio.sleep(0.2)
-            await page.keyboard.press(f"{modifier}+A")
+            await page.keyboard.press(f"{modifier}+a")
             await asyncio.sleep(0.2)
             await page.keyboard.press("Backspace")
             
             print("Pasting code...")
             await context.grant_permissions(['clipboard-read', 'clipboard-write'])
             await page.evaluate("async (text) => { await navigator.clipboard.writeText(text); }", code)
-            await page.keyboard.press(f"{modifier}+V")
+            await page.keyboard.press(f"{modifier}+v")
             
             await asyncio.sleep(2) 
             
