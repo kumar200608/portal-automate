@@ -58,7 +58,7 @@ async def generate_solution_with_openrouter(problem_text: str, starter_code: str
         """
     
     data = {
-        "model": "anthropic/claude-3.5-sonnet",
+        "model": "anthropic/claude-sonnet-4.6",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.0
     }
