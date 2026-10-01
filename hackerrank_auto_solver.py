@@ -14,14 +14,11 @@ load_dotenv()
 is_mac = sys.platform == "darwin"
 modifier = "Meta" if is_mac else "Control"
 
-async def generate_solution_with_groq(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
-    api_key = os.getenv("GROQ_API_KEY")
+async def generate_solution_with_gemini(problem_text: str, starter_code: str, previous_error: str = None, previous_code: str = None) -> str:
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        # Fallback to the GOOGLE_API_KEY if they put it there
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            print("Missing API key. Please run: export GROQ_API_KEY='gsk_...'")
-            return ""
+        print("Missing API key. Please run: export GOOGLE_API_KEY='...'")
+        return ""
         
     if previous_error and previous_code:
         prompt = f"""
@@ -61,18 +58,14 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
         """
     
     data = {
-        "model": "qwen/qwen3.8-27b",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0
+        "contents": [{"parts": [{"text": prompt}]}]
     }
     
     req = urllib.request.Request(
-        'https://api.groq.com/openai/v1/chat/completions',
+        f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key={api_key}',
         data=json.dumps(data).encode('utf-8'),
         headers={
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0'
+            'Content-Type': 'application/json'
         }
     )
     
@@ -84,7 +77,7 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
         try:
             resp = urllib.request.urlopen(req, context=ctx)
             response_data = json.loads(resp.read())
-            code = response_data['choices'][0]['message']['content']
+            code = response_data['candidates'][0]['content']['parts'][0]['text']
             # Robustly strip markdown code blocks
             code = re.sub(r"^```[a-zA-Z0-9]*\n?", "", code.strip())
             code = re.sub(r"\n?```$", "", code)
@@ -92,7 +85,7 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 wait_time = 15 * (attempt + 1)
-                print(f"Rate limited by Groq (429). Waiting {wait_time} seconds before retrying...")
+                print(f"Rate limited by Gemini (429). Waiting {wait_time} seconds before retrying...")
                 time.sleep(wait_time)
             else:
                 print(f"Failed to generate code: HTTP Error {e.code}: {e.reason}")
@@ -101,7 +94,7 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
             print(f"Failed to generate code: {e}")
             return ""
             
-    print("Failed to get code from Groq after multiple retries due to rate limits.")
+    print("Failed to get code from Gemini after multiple retries due to rate limits.")
     return ""
 
 
@@ -134,7 +127,7 @@ async def solve_current_problem(page, context):
         # Read the starter code from clipboard
         await context.grant_permissions(['clipboard-read', 'clipboard-write'])
         starter_code = await page.evaluate("async () => await navigator.clipboard.readText()")
-        print(f"Extracted starter code ({len(starter_code)} chars). Asking Groq for the solution...")
+        print(f"Extracted starter code ({len(starter_code)} chars). Asking Gemini for the solution...")
         
         previous_code = None
         previous_error = None
@@ -143,9 +136,9 @@ async def solve_current_problem(page, context):
             if attempt > 0:
                 print(f"\n--- Self-Correction Attempt {attempt} ---")
                 
-            code = await generate_solution_with_groq(problem_text, starter_code, previous_error, previous_code)
+            code = await generate_solution_with_gemini(problem_text, starter_code, previous_error, previous_code)
             if not code:
-                print("Failed to get code from Groq.")
+                print("Failed to get code from Gemini.")
                 return False
                 
             print("Code generated successfully! Injecting into editor...")
