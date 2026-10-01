@@ -68,7 +68,8 @@ async def generate_solution_with_groq(problem_text: str, starter_code: str, prev
         data=json.dumps(data).encode('utf-8'),
         headers={
             'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
         }
     )
     
